@@ -1,0 +1,110 @@
+name: uzleti-intelligencia
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres-uzleti-intelligencia
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:latest
+    container_name: redis-uzleti-intelligencia
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis-data:/data
+    command: [ "redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}" ]
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio-uzleti-intelligencia
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio-data:/data
+
+  mc:
+    image: minio/mc:latest
+    container_name: minio-mc-uzleti-intelligencia
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+        until mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do
+          sleep 2;
+        done &&
+        mc mb --ignore-existing myminio/raw >/dev/null 2>&1 &&
+        mc anonymous set public myminio/raw >/dev/null 2>&1
+      "
+
+  nifi:
+    build:
+      context: .
+      dockerfile: Dockerfile.nifi
+    image: nifi-uzleti-intelligencia-image
+    container_name: nifi-uzleti-intelligencia
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: us-east-1
+    volumes:
+      - nifi-conf:/opt/nifi/nifi-current/conf
+      - ./nifi-jdbc:/opt/nifi/nifi-current/jdbc
+    depends_on:
+      - nifi-init
+      - postgres
+      - minio
+      - redis
+
+  nifi-init:
+    image: apache/nifi:latest
+    container_name: nifi-init-uzleti-intelligencia
+    volumes:
+      - nifi-conf:/opt/nifi/nifi-current/conf
+    environment:
+      NIFI_ADMIN_USER: ${NIFI_ADMIN_USER}
+      NIFI_ADMIN_PASSWORD: ${NIFI_ADMIN_PASSWORD}
+    entrypoint: ["/opt/nifi/nifi-current/bin/nifi.sh", "set-single-user-credentials", "${NIFI_ADMIN_USER}", "${NIFI_ADMIN_PASSWORD}"]
+    restart: "no"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-uzleti-intelligencia
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+    volumes:
+      - ./grafana-data:/var/lib/grafana
+
+volumes:
+  db:
+    driver: local
+  
+  nifi-conf:
+    driver: local

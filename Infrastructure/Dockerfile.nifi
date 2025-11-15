@@ -1,0 +1,20 @@
+FROM apache/nifi:latest
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y python3-full python3-venv && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/nifi_venv
+
+RUN mkdir -p /opt/nifi/nifi-current/scripts
+
+COPY python-etl/requirements.txt /opt/nifi/nifi-current/scripts/requirements.txt
+COPY python-etl/fetch_stocks_yf.py /opt/nifi/nifi-current/scripts/fetch_stocks_yf.py
+
+RUN /opt/nifi_venv/bin/pip install --no-cache-dir -r /opt/nifi/nifi-current/scripts/requirements.txt
+
+RUN chmod +x /opt/nifi/nifi-current/scripts/fetch_stocks_yf.py
+
+USER nifi
