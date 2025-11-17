@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 import yfinance as yf
 
 TICKERS = [
@@ -8,12 +9,28 @@ TICKERS = [
 ]
 
 
+def fetch_ticker_info_with_retry(symbol, max_retries=10, base_delay=0.5):
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            info = yf.Ticker(symbol).info
+            if info:
+                return info
+            else:
+                raise ValueError("Empty info dict")
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(base_delay * attempt)
+
+    return {}
+
+
 def fetch_ohlcv(tickers):
 
     df = yf.download(
         tickers=tickers,
         period="1d",
-        interval="1d",
+        interval="5m",
         group_by="ticker",
         auto_adjust=False,
         progress=False,
@@ -39,7 +56,7 @@ def fetch_ohlcv(tickers):
         else:
             ts = idx
 
-        info = yf.Ticker(symbol).info
+        info = fetch_ticker_info_with_retry(symbol)
         name = info.get("shortName") or info.get("longName") or None
 
         result.append(
