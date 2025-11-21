@@ -9,5 +9,7 @@ CREATE TABLE IF NOT EXISTS stage.stock_ohlcv (
     high_price       numeric,
     low_price        numeric,
     close_price      numeric,
-    volume           bigint
+    volume           bigint,
+    volume_usd       numeric,
+    return_24h       numeric
 );

@@ -68,6 +68,9 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_REGION: us-east-1
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - nifi-conf:/opt/nifi/nifi-current/conf
       - ./nifi-jdbc:/opt/nifi/nifi-current/jdbc
@@ -95,12 +98,31 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
     ports:
       - "3000:3000"
     depends_on:
       - postgres
     volumes:
       - ./grafana-data:/var/lib/grafana
+
+  api:
+    build:
+      context: ../GrafanaApi
+    container_name: assets-api-uzleti-intelligencia
+    restart: unless-stopped
+    environment:
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
 
 volumes:
   db:

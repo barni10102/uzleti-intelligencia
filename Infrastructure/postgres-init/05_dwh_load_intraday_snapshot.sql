@@ -61,24 +61,29 @@ BEGIN
         volume_usd,
         return_24h
     )
-    SELECT
+    SELECT DISTINCT ON (ad.asset_id, s.datetime)
         ad.asset_id,
         s.datetime AT TIME ZONE 'UTC'      AS snapshot_ts,
         s.close_price                      AS close_price,
         s.volume::numeric                  AS volume,
-        NULL::numeric                      AS volume_usd,
-        NULL::numeric                      AS return_24h
+       s.volume_usd                        AS volume_usd,
+    s.return_24h                           AS return_24h
     FROM stage.stock_ohlcv s
     JOIN dwh.asset_dim ad
       ON ad.asset_type = 'stock'
      AND ad.symbol     = s.symbol
-    WHERE s.datetime > now() - interval '10 minutes'
+    WHERE s.ingestion_time > now() - interval '10 minutes'
+    ORDER BY
+        ad.asset_id,
+        s.datetime,
+        s.ingestion_time DESC
     ON CONFLICT (asset_id, snapshot_ts)
     DO UPDATE SET
         close_price = EXCLUDED.close_price,
         volume      = EXCLUDED.volume,
         volume_usd  = EXCLUDED.volume_usd,
         return_24h  = EXCLUDED.return_24h;
+
 
 END;
 $$;

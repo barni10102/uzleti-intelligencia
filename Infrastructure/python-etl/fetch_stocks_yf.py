@@ -1,16 +1,20 @@
 import json
 import sys
+import os
 import time
+import psycopg2
 import yfinance as yf
 
-TICKERS = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
-    "META", "TSLA", "ORCL", "MSTR", "NFLX"
-]
+DEFAULT_TOP_N = 10
+
+def get_top_n_from_args(default=DEFAULT_TOP_N):
+    try:
+        return int(sys.argv[1])
+    except (IndexError, ValueError):
+        return default
 
 
 def fetch_ticker_info_with_retry(symbol, max_retries=10, base_delay=0.5):
-
     for attempt in range(1, max_retries + 1):
         try:
             info = yf.Ticker(symbol).info
@@ -21,11 +25,43 @@ def fetch_ticker_info_with_retry(symbol, max_retries=10, base_delay=0.5):
         except Exception as e:
             if attempt < max_retries:
                 time.sleep(base_delay * attempt)
+            else:
+                return {} 
+    
 
-    return {}
+def get_stocks_from_db(top_n):
+
+    conn = psycopg2.connect(
+        host="postgres",
+        dbname=os.environ.get("POSTGRES_DB"),
+        user=os.environ.get("POSTGRES_USER"),
+        password=os.environ.get("POSTGRES_PASSWORD"),
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT symbol, name
+                FROM config.stock_universe
+                WHERE marketcap IS NOT NULL
+                ORDER BY marketcap DESC
+                LIMIT %s
+                """,
+                (top_n,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return [{"symbol": r[0], "name": r[1]} for r in rows]
 
 
-def fetch_ohlcv(tickers):
+def fetch_ohlcv(stocks):
+
+    if not stocks:
+        return []
+    
+    tickers = [s["symbol"] for s in stocks]
 
     df = yf.download(
         tickers=tickers,
@@ -39,6 +75,8 @@ def fetch_ohlcv(tickers):
     result = []
 
     available_symbols = list(df.columns.levels[0])
+
+    name_by_symbol = {s["symbol"]: s["name"] for s in stocks}
 
     for symbol in tickers:
         if symbol not in available_symbols:
@@ -56,8 +94,27 @@ def fetch_ohlcv(tickers):
         else:
             ts = idx
 
+        name = name_by_symbol.get(symbol)
+
         info = fetch_ticker_info_with_retry(symbol)
-        name = info.get("shortName") or info.get("longName") or None
+
+        regular_price = info.get("regularMarketPrice")
+        regular_volume = info.get("regularMarketVolume")
+        regular_change_pct = info.get("regularMarketChangePercent")
+
+        volume_usd = None
+        if regular_price is not None and regular_volume is not None:
+            try:
+                volume_usd = float(regular_price) * float(regular_volume)
+            except Exception:
+                volume_usd = None
+
+        return_24h = None
+        if regular_change_pct is not None:
+            try:
+                return_24h = float(regular_change_pct) / 100.0
+            except Exception:
+                return_24h = None
 
         result.append(
             {
@@ -69,6 +126,8 @@ def fetch_ohlcv(tickers):
                 "low": float(last_row["Low"]),
                 "close": float(last_row["Close"]),
                 "volume": int(last_row["Volume"]),
+                "volume_usd": volume_usd,
+                "return_24h": return_24h,
             }
         )
 
@@ -76,7 +135,9 @@ def fetch_ohlcv(tickers):
 
 
 def main():
-    data = fetch_ohlcv(TICKERS)
+    top_n = get_top_n_from_args()
+    stocks = get_stocks_from_db(top_n)
+    data = fetch_ohlcv(stocks)
     json.dump(data, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 
